@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'dart:convert';
+import 'package:shared_preferences/shared_preferences.dart';
 
 class StudentPlannerPage extends StatefulWidget {
   const StudentPlannerPage({super.key});
@@ -15,12 +17,21 @@ class _StudentPlannerPageState extends State<StudentPlannerPage> {
   String selectedPriority = "Medium";
   DateTime? selectedDueDate;
 
-  List<Map<String, dynamic>> homeworks = [];
+  List<Map<String, dynamic>> assignments = [];
 
-  String formatDate(DateTime? date) {
-    if (date == null) {
+  String formatDate(dynamic dateValue) {
+    if (dateValue == null) {
       return "Select Due Date";
     }
+
+    DateTime date = DateTime.now();
+
+    if (dateValue is DateTime) {
+      date = dateValue;
+    } else if (dateValue is String) {
+      date = DateTime.parse(dateValue);
+    }
+
     return "${date.day}/${date.month}/${date.year}";
   }
 
@@ -44,31 +55,35 @@ class _StudentPlannerPageState extends State<StudentPlannerPage> {
       return;
     }
 
-    setState(() { homeworks.add({
-      'subject': subjectController.text,
-      'homeworks': homeworkController.text,
-      'priority': selectedPriority,
-      'dueDate': selectedDueDate,
-      'completed': false
-    }); 
-  });
+    setState(() { 
+      assignments.add({
+        'subject': subjectController.text,
+        'homework': homeworkController.text,
+        'priority': selectedPriority,
+        'dueDate': selectedDueDate?.toIso8601String(),
+        'completed': false
+      }); 
+    });
   
     subjectController.clear();
     homeworkController.clear();
     selectedPriority = "Medium";
     selectedDueDate = null;
+    saveAssignments();
   }
 
   void deleteHomework(int index) {
     setState(() {
-      homeworks.removeAt(index);
+      assignments.removeAt(index);
     });
+    saveAssignments();
   }
 
   void togglecompleted(int index) {
     setState(() {
-      homeworks[index]['completed'] = !homeworks[index]['completed'];
+      assignments[index]['completed'] = !assignments[index]['completed'];
     });
+    saveAssignments();
   }
 
   bool isOverdue(DateTime? date, bool completed) {
@@ -87,8 +102,42 @@ class _StudentPlannerPageState extends State<StudentPlannerPage> {
     } else if (priority == "Medium") {
       return Colors.orange;
     } else {
-      return Colors.white;
+      return const Color.fromARGB(255, 150, 149, 149);
     }
+  }
+
+  Future<void> saveAssignments() async {
+    final prefs = await SharedPreferences.getInstance();
+    final String encodedData = jsonEncode(assignments);
+    await prefs.setString('assignments', encodedData);
+  }
+
+  Future<void> loadAssignments() async {
+    final prefs = await SharedPreferences.getInstance();
+    final String? encodedData = prefs.getString('assignments');
+    
+    if (encodedData != null) {
+      final List<dynamic> decodedData = jsonDecode(encodedData);
+
+      setState(() {
+        assignments = decodedData.map((item) {
+          return Map<String, dynamic>.from(item);
+        }).toList();
+      });
+    }
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    loadAssignments();
+  }
+
+  @override
+  void dispose() {
+    subjectController.dispose();
+    homeworkController.dispose();
+    super.dispose();
   }
 
   @override
@@ -98,105 +147,117 @@ class _StudentPlannerPageState extends State<StudentPlannerPage> {
       appBar: AppBar(
         title: Text('Student Planner'),
       ),
-      body: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          children: [
-
-            TextField(controller: subjectController, decoration: InputDecoration(labelText: 'Subject')),
-            SizedBox(height: 16),
-
-            TextField(controller: homeworkController, decoration: InputDecoration(labelText: 'homeworks')),
-            SizedBox(height: 16),
-
-            DropdownButtonFormField<String>(
-              initialValue: selectedPriority,
-
-              items: const [
-                DropdownMenuItem(value: "Low", child: Text("Low")),
-                DropdownMenuItem(value: "Medium", child: Text("Medium")),
-                DropdownMenuItem(value: "High", child: Text("High"))
-              ],
-
-              onChanged: (value) {
-                setState(() {
-                  selectedPriority = value ?? "Medium";
-                });
-              },
-            ),
-            SizedBox(height: 16),
-
-            Row(
-              children: [
-                Expanded(child: 
-                  Text(formatDate(selectedDueDate), 
-                  style: TextStyle(fontSize: 16)
-                  )
-                ),
-
-                ElevatedButton(
-                  onPressed: selectDueDate, 
-                  child: Text("Select Due Date")
-                ),
-            ]
-            ),
-            const SizedBox(height: 12),
-
-            SizedBox(
-              width: double.infinity, 
-              child: 
-                ElevatedButton(
-                  onPressed: addHomework, 
-                  child: Text("Add homeworks")
+      body: SingleChildScrollView(
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            children: [
+        
+              SingleChildScrollView(
+                scrollDirection: Axis.vertical,
+                reverse: true,
+                child: Column(
+                  children: [
+        
+                    TextField(controller: subjectController, decoration: InputDecoration(labelText: 'Subject', border: OutlineInputBorder())),
+                     SizedBox(height: 10),
+        
+                    TextField(controller: homeworkController, decoration: InputDecoration(labelText: 'Homework / Assignment', border: OutlineInputBorder())),
+                    SizedBox(height: 10),
+        
+                    DropdownButtonFormField<String>(
+                      initialValue: selectedPriority,
+                      decoration: InputDecoration(labelText: 'Priority', border: OutlineInputBorder()),
+                      items: const [
+                        DropdownMenuItem(value: "Low", child: Text("Low")),
+                        DropdownMenuItem(value: "Medium", child: Text("Medium")),
+                        DropdownMenuItem(value: "High", child: Text("High"))
+                      ],
+        
+                      onChanged: (value) {
+                        setState(() {
+                          selectedPriority = value ?? "Medium";
+                        });
+                      },
+                    ),
+                    SizedBox(height: 10),
+        
+                    Row(
+                      children: [
+                        Expanded(child: 
+                          Text(formatDate(selectedDueDate), 
+                          style: TextStyle(fontSize: 16)
+                          )
+                        ),
+        
+                        ElevatedButton(
+                          onPressed: selectDueDate, 
+                          child: Text("Select Due Date")
+                        ),
+                    ]
+                    ),
+                    const SizedBox(height: 10),
+        
+                    SizedBox(
+                      width: double.infinity, 
+                      child: ElevatedButton(
+                          onPressed: addHomework, 
+                          child: Text("Add Homework")
+                      )
+                    )
+                  ]
                 )
               ),
-            const SizedBox(height: 20),
-
-            Expanded(
-              child: homeworks.isEmpty ? 
-              const Center(
-                child: Text("No homework added.", 
-                style: TextStyle(fontSize: 18)
-                )
-              ) : ListView.builder(
-              itemCount: homeworks.length,
-              itemBuilder: (context, index) {
-                final homework = homeworks[index];
-                final overdue = isOverdue(homework['dueDate'], homework['completed']);
-
-                return Card(
-                  color: getPriorityColor(homework['priority']),
-                  child: ListTile(
-                    leading: Checkbox(
-                      value: homework['completed'], 
-                      onChanged: (value) {togglecompleted(index);}
+        
+              const SizedBox(height: 10),
+        
+              assignments.isEmpty ? 
+                const Center(
+                  child: Text("No assignments added.", 
+                  style: TextStyle(fontSize: 18)
+                  )
+                ) : ListView.builder(
+                  shrinkWrap: true,
+                  physics: const NeverScrollableScrollPhysics(),
+                itemCount: assignments.length,
+                itemBuilder: (context, index) {
+                  final homework = assignments[index];
+                  final overdue = isOverdue(DateTime.parse(homework['dueDate']), homework['completed']);
+        
+                  return Card(
+                    color: getPriorityColor(homework['priority']),
+                    child: ListTile(
+                      leading: Checkbox(
+                        value: homework['completed'], 
+                        onChanged: (value) {togglecompleted(index);}
+                      ),
+                      title: Text(
+                        homework['subject'], 
+                        style: TextStyle(
+                          decoration: homework['completed'] 
+                          ? TextDecoration.lineThrough : TextDecoration.none,
+                          fontWeight: FontWeight.bold,
+                        )
+                      ),
+                      subtitle: Text(
+                        "${homework['homework']}\n" "Priority: ${homework['priority']}\n" "Due Date: ${formatDate(homework['dueDate'])}", 
+                        style: TextStyle(
+                          decoration: homework['completed'] 
+                          ? TextDecoration.lineThrough : TextDecoration.none,
+                          color: overdue ? Colors.red : Colors.black,
+                        )
+                      ),
+                      trailing: IconButton(
+                        icon: const Icon(Icons.delete), 
+                        onPressed: () {deleteHomework(index);}
+                      ),
                     ),
-                    title: Text(
-                      homework['subject'], 
-                      style: TextStyle(
-                        decoration: homework['completed'] 
-                        ? TextDecoration.lineThrough : TextDecoration.none,
-                        fontWeight: FontWeight.bold,
-                      )
-                    ),
-                    subtitle: Text(
-                      "${homework['homework']}\n" "Priority: ${homework['priority']}\n" "Due Date: ${formatDate(homework['dueDate'])}", 
-                      style: TextStyle(
-                        decoration: homework['completed'] 
-                        ? TextDecoration.lineThrough : TextDecoration.none,
-                        color: overdue ? Colors.red : Colors.black,
-                      )
-                    ),
-                    trailing: IconButton(
-                      icon: const Icon(Icons.delete), 
-                      onPressed: () {deleteHomework(index);}
-                    ),
-                  ),
-                );
-              },
-            ))
-          ],
-        )
+                  );
+                },
+              )
+            ],
+          )
+        ),
       ),
     );
   }
